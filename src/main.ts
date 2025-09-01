@@ -585,6 +585,7 @@ initializeRGS().catch(console.error);
   function showInfoModal() {
     if (infoModal) return;
     infoModal = new Container();
+    infoModal.zIndex = 1000; // Ensure modal appears above all other elements
     const modalWidth = app.screen.width * 0.92;
     const modalHeight = app.screen.height * 0.7;
     const bg = new Graphics();
