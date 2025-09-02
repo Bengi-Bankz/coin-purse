@@ -317,52 +317,14 @@ initializeRGS().catch(console.error);
       playStartButton.on("pointertap", async () => {
         setPlayStartButtonDisabled(true);
 
-        // Immediately deduct bet amount and update balance display
-        updateBalanceFromRGS(); // Ensure we have the latest balance
-        import("./rgs").then(({ getBalance }) => {
-          const currentBalance = getBalance();
-          if (currentBalance >= betValue) {
-            // Update balance display immediately (RGS will handle actual deduction)
-            balance = currentBalance - betValue;
-            balanceText.text = `Balance: $${balance}`;
-          }
-        });
+        // Update balance display from RGS state before game round
+        updateBalanceFromRGS();
 
-        // Try to get play response, catch active bet error
-        let activeBetError = false;
         try {
-          // Try to get play response (simulate what handleGameRound does)
+          // Execute game round - RGS handles all balance logic
           const { executeGameRound } = await import("./rgs");
-          await executeGameRound(betValue); // Use actual bet value
-        } catch (err) {
-          const { isActiveBetError } = await import("./rgs");
-          if (isActiveBetError(err)) {
-            activeBetError = true;
-          } else {
-            throw err;
-          }
-        }
-        if (activeBetError) {
-          // Skip animation, prompt choose a cup, call endRound after pick
-          playStartButtonState = "waiting";
-          buildPlayStartButton();
-          await handleGameRound({
-            ForegroundAnimationGroup,
-            diamondSprite,
-            liftCup,
-            lowerCup,
-            onRest: () => {
-              setPlayStartButtonDisabled(false);
-              playStartButtonState = "ready";
-              buildPlayStartButton();
-            },
-            onBalanceUpdate,
-            balanceText,
-            showWinModal,
-            skipAnimation: true,
-            forceEndRound: true,
-          });
-        } else {
+          await executeGameRound(betValue);
+
           // Normal flow: animation, then choose a cup
           playStartButtonState = "waiting";
           buildPlayStartButton();
@@ -376,11 +338,52 @@ initializeRGS().catch(console.error);
               setPlayStartButtonDisabled(false);
               playStartButtonState = "ready";
               buildPlayStartButton();
+              // Update balance from RGS after game completes
+              updateBalanceFromRGS();
             },
             onBalanceUpdate,
             balanceText,
             showWinModal,
+            betAmount: betValue, // Pass bet amount to game round handler
           });
+        } catch (err) {
+          const { isActiveBetError } = await import("./rgs");
+          if (isActiveBetError(err)) {
+            // Handle active bet error: skip animation, prompt choose a cup
+            playStartButtonState = "waiting";
+            buildPlayStartButton();
+            await handleGameRound({
+              ForegroundAnimationGroup,
+              diamondSprite,
+              liftCup,
+              lowerCup,
+              onRest: () => {
+                setPlayStartButtonDisabled(false);
+                playStartButtonState = "ready";
+                buildPlayStartButton();
+                // Update balance from RGS after game completes
+                updateBalanceFromRGS();
+              },
+              onBalanceUpdate,
+              balanceText,
+              showWinModal,
+              betAmount: betValue, // Pass bet amount to game round handler
+              skipAnimation: true,
+              forceEndRound: true,
+            });
+          } else {
+            // Handle other errors with user feedback
+            console.error("Game round failed:", err);
+            showErrorModal(
+              err instanceof Error
+                ? `Game error: ${err.message}`
+                : "An unexpected error occurred. Please try again.",
+            );
+
+            // Re-enable play button and update balance from RGS
+            setPlayStartButtonDisabled(false);
+            updateBalanceFromRGS();
+          }
         }
       });
       playStartButton.on("pointerover", () => {
@@ -690,6 +693,86 @@ initializeRGS().catch(console.error);
     app.stage.addChild(infoModal);
   }
 
+  // --- Error Display ---
+  let errorModal: Container | null = null;
+  function showErrorModal(errorMessage: string) {
+    if (errorModal) return;
+
+    errorModal = new Container();
+    errorModal.zIndex = 1002; // Higher than win modal
+
+    const modalWidth = Math.min(app.screen.width * 0.8, 400);
+    const modalHeight = Math.min(app.screen.height * 0.4, 200);
+
+    const bg = new Graphics();
+    bg.beginFill(0xd32f2f, 0.95); // Red background for error
+    bg.drawRoundedRect(0, 0, modalWidth, modalHeight, 20);
+    bg.endFill();
+
+    // Add red border
+    bg.lineStyle(4, 0xb71c1c, 1);
+    bg.drawRoundedRect(0, 0, modalWidth, modalHeight, 20);
+
+    errorModal.addChild(bg);
+
+    // Error title
+    const errorTitle = new Text({
+      text: "⚠️ Error",
+      style: new TextStyle({
+        fontSize: 28,
+        fill: "#ffffff",
+        fontWeight: "bold",
+        align: "center",
+      }),
+    });
+    errorTitle.anchor.set(0.5);
+    errorTitle.position.set(modalWidth / 2, modalHeight / 4);
+    errorModal.addChild(errorTitle);
+
+    // Error message
+    const errorText = new Text({
+      text: errorMessage,
+      style: new TextStyle({
+        fontSize: 18,
+        fill: "#ffffff",
+        align: "center",
+        wordWrap: true,
+        wordWrapWidth: modalWidth - 40,
+      }),
+    });
+    errorText.anchor.set(0.5);
+    errorText.position.set(modalWidth / 2, modalHeight / 2);
+    errorModal.addChild(errorText);
+
+    // Close button
+    const closeBtn = new Text({
+      text: "OK",
+      style: new TextStyle({
+        fontSize: 18,
+        fill: "#ffffff",
+        fontWeight: "bold",
+      }),
+    });
+    closeBtn.interactive = true;
+    closeBtn.cursor = "pointer";
+    closeBtn.anchor.set(0.5);
+    closeBtn.position.set(modalWidth / 2, modalHeight * 0.8);
+    closeBtn.on("pointertap", () => {
+      app.stage.removeChild(errorModal!);
+      errorModal = null;
+    });
+    addSoundToClickable(closeBtn);
+    errorModal.addChild(closeBtn);
+
+    // Position and show modal
+    errorModal.position.set(
+      (app.screen.width - modalWidth) / 2,
+      (app.screen.height - modalHeight) / 2,
+    );
+
+    app.stage.addChild(errorModal);
+  }
+
   // --- Win Modal ---
   let winModal: Container | null = null;
   function showWinModal(winAmount: number) {
@@ -749,11 +832,24 @@ initializeRGS().catch(console.error);
     winText.position.set(modalWidth / 2, modalHeight / 2);
     winModal.addChild(winText);
 
-    // Close button
+    // Auto-dismiss countdown text
+    const countdownText = new Text({
+      text: "Auto-closing in 2 seconds...",
+      style: new TextStyle({
+        fontSize: 14,
+        fill: "#cccccc",
+        align: "center",
+      }),
+    });
+    countdownText.anchor.set(0.5);
+    countdownText.position.set(modalWidth / 2, modalHeight * 0.75);
+    winModal.addChild(countdownText);
+
+    // Close button (still available for manual dismissal)
     const closeBtn = new Text({
       text: "Continue",
       style: new TextStyle({
-        fontSize: 18,
+        fontSize: 16,
         fill: "#ffd700",
         fontWeight: "bold",
       }),
@@ -761,11 +857,16 @@ initializeRGS().catch(console.error);
     closeBtn.interactive = true;
     closeBtn.cursor = "pointer";
     closeBtn.anchor.set(0.5);
-    closeBtn.position.set(modalWidth / 2, modalHeight * 0.8);
-    closeBtn.on("pointertap", () => {
-      app.stage.removeChild(winModal!);
-      winModal = null;
-    });
+    closeBtn.position.set(modalWidth / 2, modalHeight * 0.9);
+
+    const dismissModal = () => {
+      if (winModal) {
+        app.stage.removeChild(winModal);
+        winModal = null;
+      }
+    };
+
+    closeBtn.on("pointertap", dismissModal);
     addSoundToClickable(closeBtn);
     winModal.addChild(closeBtn);
 
@@ -791,6 +892,23 @@ initializeRGS().catch(console.error);
       animate();
     };
     animateIn();
+
+    // Auto-dismiss after 1.5 seconds with countdown
+    let countdown = 2;
+    const countdownInterval = setInterval(() => {
+      countdown--;
+      if (countdownText && winModal) {
+        countdownText.text =
+          countdown > 0
+            ? `Auto-closing in ${countdown} second${countdown !== 1 ? "s" : ""}...`
+            : "Closing...";
+      }
+    }, 1000);
+
+    setTimeout(() => {
+      clearInterval(countdownInterval);
+      dismissModal();
+    }, 2000);
   }
 
   function createPixiButton(yOffset: number, onClick: () => void): Container {
