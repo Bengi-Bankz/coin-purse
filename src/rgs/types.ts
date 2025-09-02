@@ -29,7 +29,7 @@ export interface RgsError {
 }
 
 // Game state management
-export type GameState = "rest" | "playing";
+export type GameState = "rest" | "playing" | "awaiting_pick" | "resolving";
 
 // RGS API configuration
 export interface RgsConfig {

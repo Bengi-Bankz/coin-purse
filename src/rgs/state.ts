@@ -11,6 +11,9 @@ let endRoundResponse: EndRoundResponse | null = null;
 let balance: number = 1000;
 let lastWin: number = 0;
 
+// UI update callbacks
+let onStateChangeCallback: ((state: GameState) => void) | null = null;
+
 // State getters
 export function getGameState(): GameState {
   return gamestate;
@@ -30,6 +33,51 @@ export function getLastResponse(): PlayResponse | null {
 
 export function getLastEndRoundResponse(): EndRoundResponse | null {
   return endRoundResponse;
+}
+
+// State setters with validation
+export function setGameState(newState: GameState): void {
+  const validTransitions: Record<GameState, GameState[]> = {
+    rest: ["playing"],
+    playing: ["awaiting_pick", "rest"], // rest for error cases
+    awaiting_pick: ["resolving"],
+    resolving: ["rest"],
+  };
+
+  if (!validTransitions[gamestate].includes(newState)) {
+    console.warn(`Invalid state transition from ${gamestate} to ${newState}`);
+    return;
+  }
+
+  console.log(`State transition: ${gamestate} -> ${newState}`);
+  gamestate = newState;
+
+  // Notify UI of state change
+  if (onStateChangeCallback) {
+    onStateChangeCallback(gamestate);
+  }
+}
+
+// Register callback for state changes
+export function onStateChange(callback: (state: GameState) => void): void {
+  onStateChangeCallback = callback;
+}
+
+// Helper functions for state validation
+export function canAdjustBet(): boolean {
+  return gamestate === "rest";
+}
+
+export function canStartGame(): boolean {
+  return gamestate === "rest";
+}
+
+export function canPickCup(): boolean {
+  return gamestate === "awaiting_pick";
+}
+
+export function isGameInProgress(): boolean {
+  return gamestate !== "rest";
 }
 
 // Initialize RGS session
@@ -57,7 +105,7 @@ export async function executeGameRound(
     const playResponse = await playRound(betAmount);
     response = playResponse;
     endRoundResponse = null;
-    gamestate = "playing";
+    setGameState("playing");
 
     // Process round result
     if (playResponse?.round?.payoutMultiplier !== undefined) {
@@ -79,7 +127,7 @@ export async function executeGameRound(
     }
 
     console.error("RGS: Game round failed:", error);
-    gamestate = "rest";
+    setGameState("rest");
     throw error;
   }
 }
@@ -92,7 +140,7 @@ export async function finalizeRound(): Promise<EndRoundResponse> {
     endRoundResponse = confirmation;
 
     if (confirmation.balance.amount != null) {
-      gamestate = "rest";
+      setGameState("rest");
     }
 
     console.log("RGS: Round finalized. New balance:", balance);

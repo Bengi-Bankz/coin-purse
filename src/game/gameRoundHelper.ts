@@ -58,6 +58,8 @@ export async function handleGameRound(
     finalizeRound,
     getLastEndRoundResponse,
     isActiveBetError,
+    setGameState,
+    canPickCup,
   } = await import("../rgs");
 
   let playResponse: PlayResponse | null = null;
@@ -78,7 +80,9 @@ export async function handleGameRound(
     }
   }
 
-  // Step 2: Enable cup click and wait for user pick
+  // Step 2: Set state to awaiting_pick and enable cup click
+  setGameState("awaiting_pick");
+
   const cupSprites: Sprite[] = ForegroundAnimationGroup.cupSprites;
   let chosenIdx: number | null = null;
 
@@ -110,8 +114,12 @@ export async function handleGameRound(
     cupSprites.forEach((cup: Sprite, idx: number) => {
       cup.removeAllListeners("pointertap");
       cup.on("pointertap", async () => {
-        if (chosenIdx !== null) return; // Only allow one pick
+        // Check if we can pick a cup using centralized state
+        if (!canPickCup() || chosenIdx !== null) return;
+
         chosenIdx = idx;
+        // Set state to resolving
+        setGameState("resolving");
 
         // Play louder click sound for cups
         if (sessionStorage?.getItem("soundEnabled") === "1") {
@@ -136,6 +144,7 @@ export async function handleGameRound(
           onBalanceUpdate(
             getLastEndRoundResponse() || { balance: { amount: 0 } },
           );
+          // finalizeRound() should set state to "rest"
         } else {
           // Animate chosen cup lift
           await liftCup(cup);
@@ -189,6 +198,8 @@ export async function handleGameRound(
             await lowerCup(otherCup);
             diamondSprite.visible = false;
             // Note: For losses, we don't call finalizeRound to avoid "active bet" error
+            // But we need to reset state to "rest"
+            setGameState("rest");
           }
         }
         // Reset state for next round

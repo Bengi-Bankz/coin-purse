@@ -33,4 +33,10 @@ export {
   initializeRGS,
   executeGameRound,
   finalizeRound,
+  setGameState,
+  onStateChange,
+  canAdjustBet,
+  canStartGame,
+  canPickCup,
+  isGameInProgress,
 } from "./state";

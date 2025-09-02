@@ -6,7 +6,18 @@
 // TODO: Implement game state management system
 
 import { handleGameRound } from "./game/gameRoundHelper";
-import { initializeRGS } from "./rgs";
+import {
+  initializeRGS,
+  getGameState,
+  onStateChange,
+  canAdjustBet,
+  canStartGame,
+} from "./rgs";
+import {
+  registerGameControls,
+  updateControlsForState,
+  setGameStateGetter,
+} from "./ui/gameControlHelper";
 import {
   Application,
   Assets,
@@ -146,6 +157,8 @@ initializeRGS().catch(console.error);
 
   const betInput: Container = new Container();
   let betText: Text;
+  let minusBtn: Container = new Container();
+  let plusBtn: Container = new Container();
 
   function updateBetText() {
     betText.text = `$${betValue.toLocaleString(undefined, { minimumFractionDigits: betValue < 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
@@ -165,7 +178,7 @@ initializeRGS().catch(console.error);
     bg.endFill();
     betInput.addChild(bg);
 
-    const minusBtn = new Container();
+    minusBtn = new Container();
     const minusBg = new Graphics();
     minusBg
       .beginFill(0x28324a, 1)
@@ -194,7 +207,7 @@ initializeRGS().catch(console.error);
     minusBtn.addChild(minusTxt);
     addSoundToClickable(minusBtn);
     minusBtn.on("pointertap", () => {
-      if (betIndex > 0) {
+      if (canAdjustBet() && betIndex > 0) {
         betIndex--;
         betValue = betSteps[betIndex];
         updateBetText();
@@ -214,7 +227,7 @@ initializeRGS().catch(console.error);
     updateBetText();
     betText.anchor.set(0.5);
 
-    const plusBtn = new Container();
+    plusBtn = new Container();
     const plusBg = new Graphics();
     plusBg
       .beginFill(0x28324a, 1)
@@ -243,7 +256,7 @@ initializeRGS().catch(console.error);
     plusBtn.addChild(plusTxt);
     addSoundToClickable(plusBtn);
     plusBtn.on("pointertap", () => {
-      if (betIndex < betSteps.length - 1) {
+      if (canAdjustBet() && betIndex < betSteps.length - 1) {
         betIndex++;
         betValue = betSteps[betIndex];
         updateBetText();
@@ -314,13 +327,19 @@ initializeRGS().catch(console.error);
     playStartButton.cursor = playStartButtonDisabled ? "default" : "pointer";
     if (!playStartButtonDisabled) {
       playStartButton.on("pointertap", async () => {
+        // Check if we can start a game using centralized state
+        if (!canStartGame()) {
+          console.warn("Cannot start game in current state:", getGameState());
+          return;
+        }
+
         setPlayStartButtonDisabled(true);
 
         // Update balance display from RGS state before game round
         updateBalanceFromRGS();
 
         try {
-          // Execute game round - RGS handles all balance logic
+          // Execute game round - RGS handles all balance logic and state transition
           const { executeGameRound } = await import("./rgs");
           await executeGameRound(betValue);
 
@@ -412,6 +431,25 @@ initializeRGS().catch(console.error);
   }
 
   buildPlayStartButton();
+
+  // --- Initialize centralized game state management ---
+  // Set up the game state getter for UI controls
+  setGameStateGetter(getGameState);
+
+  // Register UI controls for centralized state management
+  registerGameControls({
+    betButtons: [minusBtn, plusBtn],
+    playButton: playStartButton,
+    cups: ForegroundAnimationGroup.cupSprites,
+  });
+
+  // Set up state change callback to update UI controls
+  onStateChange((newState) => {
+    updateControlsForState(newState);
+  });
+
+  // Initialize UI for initial state
+  updateControlsForState(getGameState());
 
   // ...existing code...
 
