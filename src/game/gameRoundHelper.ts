@@ -7,8 +7,6 @@
 //   - Loss:  round.payoutMultiplier is missing, zero, or falsy
 //
 // TODO: Refactor to use more generic game round abstraction
-// TODO: Add support for different bet amounts
-// TODO: Improve error handling and user feedback
 
 import type { Container, Sprite, Text } from "pixi.js";
 import type { PlayResponse, EndRoundResponse } from "../rgs";
@@ -165,9 +163,9 @@ export async function handleGameRound(
 
             // Show win modal if callback provided
             if (showWinModal && playResponse.round.payoutMultiplier > 0) {
-              // Calculate win amount as betAmount * 10
+              // Calculate win amount from API response
               const bet = opts.betAmount ?? 1;
-              const winAmount = bet * 10;
+              const winAmount = bet * playResponse.round.payoutMultiplier;
               showWinModal(winAmount);
             }
           } else {

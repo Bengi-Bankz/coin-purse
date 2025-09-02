@@ -3,7 +3,6 @@
 //
 // TODO: Break this large file into smaller, focused modules
 // TODO: Extract UI components into separate classes
-// TODO: Add proper error boundaries and user feedback
 // TODO: Implement game state management system
 
 import { handleGameRound } from "./game/gameRoundHelper";
