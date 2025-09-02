@@ -32,6 +32,39 @@ export function getLastEndRoundResponse(): EndRoundResponse | null {
   return endRoundResponse;
 }
 
+// State transition functions with validation
+export function setGameState(newState: GameState): void {
+  const validTransitions: Record<GameState, GameState[]> = {
+    rest: ["playing"],
+    playing: ["awaiting_pick", "rest"], // rest for error cases
+    awaiting_pick: ["resolving"],
+    resolving: ["rest"],
+  };
+
+  if (!validTransitions[gamestate].includes(newState)) {
+    console.warn(
+      `RGS: Invalid state transition from ${gamestate} to ${newState}`,
+    );
+    return;
+  }
+
+  console.log(`RGS: State transition: ${gamestate} -> ${newState}`);
+  gamestate = newState;
+}
+
+// Helper functions for state validation
+export function canAdjustBet(): boolean {
+  return gamestate === "rest";
+}
+
+export function canStartPlay(): boolean {
+  return gamestate === "rest";
+}
+
+export function canPickCup(): boolean {
+  return gamestate === "awaiting_pick";
+}
+
 // Initialize RGS session
 export async function initializeRGS(): Promise<void> {
   try {
@@ -49,15 +82,18 @@ export async function executeGameRound(
   betAmount: number = 1,
 ): Promise<PlayResponse> {
   try {
-    if (gamestate === "rest") {
-      balance -= betAmount;
-      console.log("RGS: Balance deducted:", betAmount, "New balance:", balance);
+    if (!canStartPlay()) {
+      throw new Error(`Cannot start play from state: ${gamestate}`);
     }
+
+    // Deduct bet from balance and transition to playing
+    balance -= betAmount;
+    console.log("RGS: Balance deducted:", betAmount, "New balance:", balance);
+    setGameState("playing");
 
     const playResponse = await playRound(betAmount);
     response = playResponse;
     endRoundResponse = null;
-    gamestate = "playing";
 
     // Process round result
     if (playResponse?.round?.payoutMultiplier !== undefined) {
@@ -79,7 +115,7 @@ export async function executeGameRound(
     }
 
     console.error("RGS: Game round failed:", error);
-    gamestate = "rest";
+    setGameState("rest");
     throw error;
   }
 }
@@ -92,7 +128,7 @@ export async function finalizeRound(): Promise<EndRoundResponse> {
     endRoundResponse = confirmation;
 
     if (confirmation.balance.amount != null) {
-      gamestate = "rest";
+      setGameState("rest");
     }
 
     console.log("RGS: Round finalized. New balance:", balance);
@@ -101,6 +137,21 @@ export async function finalizeRound(): Promise<EndRoundResponse> {
     console.error("RGS: Failed to finalize round:", error);
     throw error;
   }
+}
+
+// Transition to awaiting cup pick (called after animation completes)
+export function setAwaitingPick(): void {
+  setGameState("awaiting_pick");
+}
+
+// Start resolving phase (called when cup is picked)
+export function startResolving(): void {
+  setGameState("resolving");
+}
+
+// Handle loss (transition directly to rest without calling finalizeRound)
+export function handleLoss(): void {
+  setGameState("rest");
 }
 
 // TODO: Add retry logic for failed requests

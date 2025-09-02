@@ -146,6 +146,8 @@ initializeRGS().catch(console.error);
 
   const betInput: Container = new Container();
   let betText: Text;
+  let betMinusBtn: Container;
+  let betPlusBtn: Container;
 
   function updateBetText() {
     betText.text = `$${betValue.toLocaleString(undefined, { minimumFractionDigits: betValue < 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
@@ -166,6 +168,7 @@ initializeRGS().catch(console.error);
     betInput.addChild(bg);
 
     const minusBtn = new Container();
+    betMinusBtn = minusBtn; // Store reference for state management
     const minusBg = new Graphics();
     minusBg
       .beginFill(0x28324a, 1)
@@ -194,11 +197,14 @@ initializeRGS().catch(console.error);
     minusBtn.addChild(minusTxt);
     addSoundToClickable(minusBtn);
     minusBtn.on("pointertap", () => {
-      if (betIndex > 0) {
-        betIndex--;
-        betValue = betSteps[betIndex];
-        updateBetText();
-      }
+      // Import and check if bet adjustment is allowed
+      import("./rgs/state").then(({ canAdjustBet }) => {
+        if (canAdjustBet() && betIndex > 0) {
+          betIndex--;
+          betValue = betSteps[betIndex];
+          updateBetText();
+        }
+      });
     });
 
     betText = new Text({
@@ -215,6 +221,7 @@ initializeRGS().catch(console.error);
     betText.anchor.set(0.5);
 
     const plusBtn = new Container();
+    betPlusBtn = plusBtn; // Store reference for state management
     const plusBg = new Graphics();
     plusBg
       .beginFill(0x28324a, 1)
@@ -243,11 +250,14 @@ initializeRGS().catch(console.error);
     plusBtn.addChild(plusTxt);
     addSoundToClickable(plusBtn);
     plusBtn.on("pointertap", () => {
-      if (betIndex < betSteps.length - 1) {
-        betIndex++;
-        betValue = betSteps[betIndex];
-        updateBetText();
-      }
+      // Import and check if bet adjustment is allowed
+      import("./rgs/state").then(({ canAdjustBet }) => {
+        if (canAdjustBet() && betIndex < betSteps.length - 1) {
+          betIndex++;
+          betValue = betSteps[betIndex];
+          updateBetText();
+        }
+      });
     });
 
     minusBtn.position.set(50 * scale, 11 * scale);
@@ -314,20 +324,45 @@ initializeRGS().catch(console.error);
     playStartButton.cursor = playStartButtonDisabled ? "default" : "pointer";
     if (!playStartButtonDisabled) {
       playStartButton.on("pointertap", async () => {
-        setPlayStartButtonDisabled(true);
-
-        // Update balance display from RGS state before game round
-        updateBalanceFromRGS();
-
         try {
-          // Execute game round - RGS handles all balance logic
+          // Import state management functions
+          const { canStartPlay, setAwaitingPick } = await import("./rgs/state");
+          const { updateUIStates } = await import("./ui/stateManager");
+
+          if (!canStartPlay()) {
+            console.warn("Cannot start play from current state");
+            return;
+          }
+
+          setPlayStartButtonDisabled(true);
+          updateBalanceFromRGS();
+
+          // Execute game round - this transitions state to "playing"
           const { executeGameRound } = await import("./rgs");
           await executeGameRound(betValue);
 
-          // Normal flow: animation, then choose a cup
+          // Update UI states after state change
+          updateUIStates({
+            betMinusButton: betMinusBtn,
+            betPlusButton: betPlusBtn,
+            playButton: playStartButton,
+            cupSprites: ForegroundAnimationGroup.cupSprites,
+          });
+
+          // Normal flow: animation, then transition to awaiting_pick
           playStartButtonState = "waiting";
           buildPlayStartButton();
           await runAnimationSequence();
+
+          // After animation, transition to awaiting_pick
+          setAwaitingPick();
+          updateUIStates({
+            betMinusButton: betMinusBtn,
+            betPlusButton: betPlusBtn,
+            playButton: playStartButton,
+            cupSprites: ForegroundAnimationGroup.cupSprites,
+          });
+
           await handleGameRound({
             ForegroundAnimationGroup,
             diamondSprite,
@@ -337,20 +372,38 @@ initializeRGS().catch(console.error);
               setPlayStartButtonDisabled(false);
               playStartButtonState = "ready";
               buildPlayStartButton();
-              // Update balance from RGS after game completes
               updateBalanceFromRGS();
+              // Update UI states when returning to rest
+              updateUIStates({
+                betMinusButton: betMinusBtn,
+                betPlusButton: betPlusBtn,
+                playButton: playStartButton,
+                cupSprites: ForegroundAnimationGroup.cupSprites,
+              });
             },
             onBalanceUpdate,
             balanceText,
             showWinModal,
-            betAmount: betValue, // Pass bet amount to game round handler
+            betAmount: betValue,
           });
         } catch (err) {
           const { isActiveBetError } = await import("./rgs");
+          const { updateUIStates } = await import("./ui/stateManager");
+
           if (isActiveBetError(err)) {
             // Handle active bet error: skip animation, prompt choose a cup
+            const { setAwaitingPick } = await import("./rgs/state");
+
             playStartButtonState = "waiting";
             buildPlayStartButton();
+            setAwaitingPick();
+            updateUIStates({
+              betMinusButton: betMinusBtn,
+              betPlusButton: betPlusBtn,
+              playButton: playStartButton,
+              cupSprites: ForegroundAnimationGroup.cupSprites,
+            });
+
             await handleGameRound({
               ForegroundAnimationGroup,
               diamondSprite,
@@ -360,13 +413,18 @@ initializeRGS().catch(console.error);
                 setPlayStartButtonDisabled(false);
                 playStartButtonState = "ready";
                 buildPlayStartButton();
-                // Update balance from RGS after game completes
                 updateBalanceFromRGS();
+                updateUIStates({
+                  betMinusButton: betMinusBtn,
+                  betPlusButton: betPlusBtn,
+                  playButton: playStartButton,
+                  cupSprites: ForegroundAnimationGroup.cupSprites,
+                });
               },
               onBalanceUpdate,
               balanceText,
               showWinModal,
-              betAmount: betValue, // Pass bet amount to game round handler
+              betAmount: betValue,
               skipAnimation: true,
               forceEndRound: true,
             });
@@ -382,6 +440,12 @@ initializeRGS().catch(console.error);
             // Re-enable play button and update balance from RGS
             setPlayStartButtonDisabled(false);
             updateBalanceFromRGS();
+            updateUIStates({
+              betMinusButton: betMinusBtn,
+              betPlusButton: betPlusBtn,
+              playButton: playStartButton,
+              cupSprites: ForegroundAnimationGroup.cupSprites,
+            });
           }
         }
       });
@@ -571,6 +635,16 @@ initializeRGS().catch(console.error);
     // Sound Toggle
     soundToggle.x = 20;
     soundToggle.y = balanceText.y + balanceText.height + 8;
+
+    // Update UI states based on current game state
+    import("./ui/stateManager").then(({ updateUIStates }) => {
+      updateUIStates({
+        betMinusButton: betMinusBtn,
+        betPlusButton: betPlusBtn,
+        playButton: playStartButton,
+        cupSprites: ForegroundAnimationGroup.cupSprites,
+      });
+    });
   }
   app.renderer.on("resize", layoutUI);
   layoutUI();

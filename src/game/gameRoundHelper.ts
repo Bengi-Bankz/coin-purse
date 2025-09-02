@@ -58,6 +58,9 @@ export async function handleGameRound(
     finalizeRound,
     getLastEndRoundResponse,
     isActiveBetError,
+    canPickCup,
+    startResolving,
+    handleLoss,
   } = await import("../rgs");
 
   let playResponse: PlayResponse | null = null;
@@ -111,7 +114,17 @@ export async function handleGameRound(
       cup.removeAllListeners("pointertap");
       cup.on("pointertap", async () => {
         if (chosenIdx !== null) return; // Only allow one pick
+
+        // Check if cup picking is allowed in current state
+        if (!canPickCup()) {
+          console.warn("Cup picking not allowed in current state");
+          return;
+        }
+
         chosenIdx = idx;
+
+        // Transition to resolving state
+        startResolving();
 
         // Play louder click sound for cups
         if (sessionStorage?.getItem("soundEnabled") === "1") {
@@ -188,7 +201,8 @@ export async function handleGameRound(
             await new Promise((r) => setTimeout(r, 800));
             await lowerCup(otherCup);
             diamondSprite.visible = false;
-            // Note: For losses, we don't call finalizeRound to avoid "active bet" error
+            // For losses, don't call finalizeRound and transition directly to rest
+            handleLoss();
           }
         }
         // Reset state for next round
