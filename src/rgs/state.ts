@@ -51,6 +51,7 @@ export async function executeGameRound(
   try {
     if (gamestate === "rest") {
       balance -= betAmount;
+      console.log("RGS: Balance deducted:", betAmount, "New balance:", balance);
     }
 
     const playResponse = await playRound(betAmount);
@@ -60,7 +61,7 @@ export async function executeGameRound(
 
     // Process round result
     if (playResponse?.round?.payoutMultiplier !== undefined) {
-      lastWin = playResponse.round.payoutMultiplier;
+      lastWin = playResponse.round.payoutMultiplier * betAmount;
     } else {
       lastWin = 0;
     }

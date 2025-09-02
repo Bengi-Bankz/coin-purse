@@ -89,8 +89,10 @@ initializeRGS().catch(console.error);
   // --- Sound Effects with PixiJS Sound ---
   const hoverSoundUrl = new URL("./assets/sfx-hover.mp3", import.meta.url).href;
   const pressSoundUrl = new URL("./assets/sfx-press.mp3", import.meta.url).href;
+  const winSoundUrl = new URL("./assets/win.mp3", import.meta.url).href;
   PIXI_SOUND.default.add("hover", hoverSoundUrl);
   PIXI_SOUND.default.add("press", pressSoundUrl);
+  PIXI_SOUND.default.add("win", winSoundUrl);
 
   // --- Create Pixi Application
   const app = new Application();
@@ -314,12 +316,24 @@ initializeRGS().catch(console.error);
     if (!playStartButtonDisabled) {
       playStartButton.on("pointertap", async () => {
         setPlayStartButtonDisabled(true);
+
+        // Immediately deduct bet amount and update balance display
+        updateBalanceFromRGS(); // Ensure we have the latest balance
+        import("./rgs").then(({ getBalance }) => {
+          const currentBalance = getBalance();
+          if (currentBalance >= betValue) {
+            // Update balance display immediately (RGS will handle actual deduction)
+            balance = currentBalance - betValue;
+            balanceText.text = `Balance: $${balance}`;
+          }
+        });
+
         // Try to get play response, catch active bet error
         let activeBetError = false;
         try {
           // Try to get play response (simulate what handleGameRound does)
           const { executeGameRound } = await import("./rgs");
-          await executeGameRound(1); // TODO: Use actual bet value
+          await executeGameRound(betValue); // Use actual bet value
         } catch (err) {
           const { isActiveBetError } = await import("./rgs");
           if (isActiveBetError(err)) {
@@ -344,6 +358,7 @@ initializeRGS().catch(console.error);
             },
             onBalanceUpdate,
             balanceText,
+            showWinModal,
             skipAnimation: true,
             forceEndRound: true,
           });
@@ -364,6 +379,7 @@ initializeRGS().catch(console.error);
             },
             onBalanceUpdate,
             balanceText,
+            showWinModal,
           });
         }
       });
@@ -483,6 +499,14 @@ initializeRGS().catch(console.error);
   balanceText.anchor.set(0, 0);
   balanceText.position.set(20, 20);
   app.stage.addChild(balanceText);
+
+  // Function to update balance display from RGS state
+  function updateBalanceFromRGS() {
+    import("./rgs").then(({ getBalance }) => {
+      balance = getBalance();
+      balanceText.text = `Balance: $${balance}`;
+    });
+  }
 
   let soundEnabledState = sessionStorage.getItem("soundEnabled") === "1";
   const soundToggle = new Container();
@@ -664,6 +688,109 @@ initializeRGS().catch(console.error);
       (app.screen.height - bg.height) / 2,
     );
     app.stage.addChild(infoModal);
+  }
+
+  // --- Win Modal ---
+  let winModal: Container | null = null;
+  function showWinModal(winAmount: number) {
+    if (winModal) return;
+
+    // Play win sound
+    if (sessionStorage.getItem("soundEnabled") === "1") {
+      PIXI_SOUND.default.play("win", { volume: 0.9 });
+    }
+
+    winModal = new Container();
+    winModal.zIndex = 1001; // Higher than info modal
+
+    const modalWidth = Math.min(app.screen.width * 0.8, 400);
+    const modalHeight = Math.min(app.screen.height * 0.6, 300);
+
+    const bg = new Graphics();
+    bg.beginFill(0x2e7d32, 0.95); // Green background for win
+    bg.drawRoundedRect(0, 0, modalWidth, modalHeight, 20);
+    bg.endFill();
+
+    // Add golden border
+    bg.lineStyle(4, 0xffd700, 1);
+    bg.drawRoundedRect(0, 0, modalWidth, modalHeight, 20);
+
+    winModal.addChild(bg);
+
+    // Win title
+    const winTitle = new Text({
+      text: "🎉 WINNER! 🎉",
+      style: new TextStyle({
+        fontSize: 36,
+        fill: "#ffd700",
+        fontWeight: "bold",
+        dropShadow: {
+          color: 0x000000,
+          distance: 2,
+        },
+        align: "center",
+      }),
+    });
+    winTitle.anchor.set(0.5);
+    winTitle.position.set(modalWidth / 2, modalHeight / 4);
+    winModal.addChild(winTitle);
+
+    // Win amount
+    const winText = new Text({
+      text: `You won $${winAmount.toFixed(2)}!`,
+      style: new TextStyle({
+        fontSize: 24,
+        fill: "#ffffff",
+        fontWeight: "bold",
+        align: "center",
+      }),
+    });
+    winText.anchor.set(0.5);
+    winText.position.set(modalWidth / 2, modalHeight / 2);
+    winModal.addChild(winText);
+
+    // Close button
+    const closeBtn = new Text({
+      text: "Continue",
+      style: new TextStyle({
+        fontSize: 18,
+        fill: "#ffd700",
+        fontWeight: "bold",
+      }),
+    });
+    closeBtn.interactive = true;
+    closeBtn.cursor = "pointer";
+    closeBtn.anchor.set(0.5);
+    closeBtn.position.set(modalWidth / 2, modalHeight * 0.8);
+    closeBtn.on("pointertap", () => {
+      app.stage.removeChild(winModal!);
+      winModal = null;
+    });
+    addSoundToClickable(closeBtn);
+    winModal.addChild(closeBtn);
+
+    // Animate modal appearance
+    winModal.scale.set(0.1);
+    winModal.position.set(
+      (app.screen.width - modalWidth) / 2,
+      (app.screen.height - modalHeight) / 2,
+    );
+
+    app.stage.addChild(winModal);
+
+    // Scale animation
+    const animateIn = () => {
+      let scale = 0.1;
+      const animate = () => {
+        scale += 0.05;
+        winModal!.scale.set(Math.min(scale, 1));
+        if (scale < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    };
+    animateIn();
   }
 
   function createPixiButton(yOffset: number, onClick: () => void): Container {
