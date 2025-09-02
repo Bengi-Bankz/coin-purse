@@ -66,7 +66,9 @@ export async function handleGameRound(
 
   if (!skipAnimation) {
     try {
-      playResponse = await executeGameRound(1); // TODO: Make bet amount configurable
+      // Use betAmount from options, default to 1 if not provided
+      const bet = (opts as any).betAmount ?? 1;
+      playResponse = await executeGameRound(bet);
     } catch (err) {
       // Check if error is active bet error using centralized utility
       if (isActiveBetError(err)) {
@@ -162,9 +164,9 @@ export async function handleGameRound(
 
             // Show win modal if callback provided
             if (showWinModal && playResponse.round.payoutMultiplier > 0) {
-              // Get the last win amount from RGS state (which includes bet amount calculation)
-              const { getLastWin } = await import("../rgs");
-              const winAmount = getLastWin();
+              // Calculate win amount as betAmount * 10
+              const bet = (opts as any).betAmount ?? 1;
+              const winAmount = bet * 10;
               showWinModal(winAmount);
             }
           } else {
